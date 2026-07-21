@@ -1,0 +1,54 @@
+name: Use local portrait
+
+on:
+  push:
+    paths:
+      - '.github/workflows/use-local-portrait.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Point images to local asset
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+          local = './assets/juan-david-traje.webp'
+
+          text, hero = re.subn(
+              r'(<div class="photo"[^>]*>\s*<img[^>]*src=")[^"]+("[^>]*>)',
+              rf'\1{local}\2',
+              text,
+              count=1,
+              flags=re.S,
+          )
+          text, about = re.subn(
+              r'(<div class="about-photo"[^>]*>\s*<img[^>]*src=")[^"]+("[^>]*>)',
+              rf'\1{local}\2',
+              text,
+              count=1,
+              flags=re.S,
+          )
+
+          if hero != 1 or about != 1:
+              raise RuntimeError(f'Image replacements failed: hero={hero}, about={about}')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "Use local portrait image"
+          git push
