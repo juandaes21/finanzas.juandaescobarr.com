@@ -1,0 +1,117 @@
+name: Improve diagnostic lead capture
+
+on:
+  push:
+    paths:
+      - '.github/workflows/improve-lead-capture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upgrade diagnostic into lead capture funnel
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('index.html')
+          text = path.read_text(encoding='utf-8')
+
+          # 1) Update the diagnostic promise so it is transparent about contact capture.
+          old_aside = 'No pedimos nombres, ingresos ni datos personales. Tus respuestas no se envían ni se almacenan.'
+          new_aside = 'Primero haces el diagnóstico sin datos personales. Al final puedes dejar tus datos si quieres que conserve tu resultado y pueda contactarte. No pedimos ingresos ni información financiera sensible.'
+          text = text.replace(old_aside, new_aside)
+
+          # 2) Add premium lead-capture styles.
+          css = r'''
+          /* Diagnostic lead capture */
+          .diag-steps{display:grid;gap:10px;margin-top:26px}.diag-step{display:grid;grid-template-columns:30px 1fr;gap:11px;align-items:center;color:rgba(255,255,255,.46);font-size:.73rem}.diag-step b{width:28px;height:28px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.14);border-radius:50%;font-size:.64rem;color:rgba(255,255,255,.62)}.diag-step.active{color:#fff}.diag-step.active b{border-color:var(--gold);background:rgba(213,163,84,.13);color:var(--gold)}
+          .lead-step{display:none}.lead-step.active{display:block}.lead-kicker{display:inline-flex;align-items:center;gap:8px;color:#916a31;font-size:.68rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase}.lead-kicker:before{content:"";width:20px;height:1px;background:var(--gold)}.lead-title{margin-top:12px;font-family:var(--serif);font-size:clamp(2.3rem,4vw,3.45rem);line-height:1.02}.lead-copy{margin:14px 0 0;color:var(--muted);font-size:.88rem}.lead-preview{display:grid;grid-template-columns:92px 1fr;gap:18px;align-items:center;margin:24px 0;padding:18px;border:1px solid var(--line);border-radius:20px;background:var(--paper)}.lead-preview-score{width:82px;height:82px;display:grid;place-items:center;border-radius:50%;background:var(--navy);color:#fff;font-family:var(--serif);font-size:1.55rem}.lead-preview strong{display:block;font-size:.9rem}.lead-preview span{display:block;margin-top:5px;color:var(--muted);font-size:.76rem;line-height:1.5}
+          .lead-form{display:grid;gap:15px}.lead-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:7px}.field.full{grid-column:1/-1}.field label{font-size:.7rem;font-weight:700;color:#45534d}.field input,.field select{width:100%;height:50px;padding:0 14px;border:1px solid var(--line);border-radius:14px;background:#fff;color:var(--ink);outline:none;transition:border-color .2s,box-shadow .2s}.field input:focus,.field select:focus{border-color:var(--gold);box-shadow:0 0 0 4px rgba(213,163,84,.11)}.field input::placeholder{color:#9aa39f}.consent{display:grid;grid-template-columns:20px 1fr;gap:9px;align-items:start;color:var(--muted);font-size:.7rem;line-height:1.5}.consent input{margin-top:3px;accent-color:var(--gold)}.consent a{color:#8b642d;text-decoration:underline;text-underline-offset:2px}.lead-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:4px}.lead-submit{min-height:50px;padding:0 20px;border:0;border-radius:999px;background:var(--gold);color:var(--navy);font-size:.76rem;font-weight:800;cursor:pointer}.lead-submit[disabled]{opacity:.58;cursor:wait}.lead-skip{min-height:46px;padding:0 6px;border:0;background:transparent;color:var(--muted);font-size:.72rem;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.lead-status{min-height:20px;color:var(--muted);font-size:.7rem}.lead-status.error{color:#9d3f33}.lead-status.ok{color:#2f7256}.data-note{display:flex;gap:8px;align-items:flex-start;padding:11px 13px;border-radius:13px;background:#f5efe4;color:#6d675d;font-size:.68rem;line-height:1.45}.data-note b{color:#8f672e}.diag-result .result-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.result-chip{padding:7px 10px;border-radius:999px;background:var(--cream);color:#735a37;font-size:.67rem;font-weight:700}.result-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:23px}
+          @media(max-width:640px){.lead-grid{grid-template-columns:1fr}.lead-preview{grid-template-columns:72px 1fr;padding:14px}.lead-preview-score{width:66px;height:66px;font-size:1.3rem}.lead-title{font-size:2.65rem}.lead-actions{display:grid}.lead-submit,.lead-skip{width:100%}}
+          '''
+          if 'Diagnostic lead capture' not in text:
+              text = text.replace('</style>', css + '\n</style>', 1)
+
+          # 3) Add three-step indicator in the left diagnostic panel.
+          marker = '<span class="diag-count" id="diagCount">Pregunta 1 de 10</span>'
+          if marker in text and 'class="diag-steps"' not in text:
+              steps = marker + '''<div class="diag-steps" aria-label="Progreso del diagnóstico"><div class="diag-step active" data-diag-step="questions"><b>1</b><span>Diagnóstico</span></div><div class="diag-step" data-diag-step="contact"><b>2</b><span>Contacto opcional</span></div><div class="diag-step" data-diag-step="result"><b>3</b><span>Resultado</span></div></div>'''
+              text = text.replace(marker, steps, 1)
+
+          # 4) Replace result area with contact step + final result.
+          old_result_pattern = re.compile(r'<div class="diag-result" id="diagResult">.*?</div></div></div></div></section>', re.S)
+          match = old_result_pattern.search(text)
+          if not match:
+              raise RuntimeError('Could not locate diagnostic result block')
+
+          new_result = r'''<div class="lead-step" id="leadStep">
+            <span class="lead-kicker">Tu resultado está listo</span>
+            <h3 class="lead-title">Convirtamos el diagnóstico en una conversación útil.</h3>
+            <p class="lead-copy">Puedes ver tu resultado sin dejar datos. Si prefieres que conserve el contexto y pueda contactarte, deja un canal de contacto.</p>
+            <div class="lead-preview"><div class="lead-preview-score" id="leadScore">0/10</div><div><strong>Patrimonio en 10 completado</strong><span>No te pediré ingresos, saldos, documentos ni información financiera sensible.</span></div></div>
+            <form class="lead-form" id="leadForm" autocomplete="on">
+              <div class="lead-grid">
+                <div class="field"><label for="leadName">Nombre y apellido *</label><input id="leadName" name="Nombre" type="text" autocomplete="name" placeholder="Tu nombre" required></div>
+                <div class="field"><label for="leadWhatsapp">WhatsApp *</label><input id="leadWhatsapp" name="WhatsApp" type="tel" autocomplete="tel" inputmode="tel" placeholder="+57 300 000 0000" required></div>
+                <div class="field"><label for="leadEmail">Correo</label><input id="leadEmail" name="Email" type="email" autocomplete="email" placeholder="tu@correo.com"></div>
+                <div class="field"><label for="leadInterest">¿Qué quieres organizar? *</label><select id="leadInterest" name="Interes_principal" required><option value="" selected disabled>Selecciona una opción</option><option>Protección familiar</option><option>Ahorro e inversión</option><option>Retiro</option><option>Educación de hijos</option><option>Patrimonio y legado</option><option>Finanzas para profesionales o emprendedores</option><option>Revisar productos que ya tengo</option><option>Otro / todavía no estoy seguro</option></select></div>
+              </div>
+              <label class="consent"><input id="leadConsent" name="Autorizacion_contacto" value="Sí" type="checkbox" required><span>Autorizo el tratamiento de estos datos para gestionar mi solicitud y que Finanzas con Esco pueda contactarme. Consulta el <a href="/privacidad/" target="_blank">aviso de privacidad</a>.</span></label>
+              <label class="consent"><input id="leadMarketing" name="Comunicaciones" value="Sí" type="checkbox"><span>Quiero recibir ocasionalmente contenido educativo y novedades de Finanzas con Esco. <strong>Opcional.</strong></span></label>
+              <input type="text" name="_honey" tabindex="-1" autocomplete="off" style="position:absolute;left:-5000px" aria-hidden="true">
+              <div class="data-note"><b>Privacidad</b><span>El diagnóstico no solicita cifras financieras sensibles. El contacto es opcional y puedes pedir actualización o eliminación de tus datos por correo.</span></div>
+              <div class="lead-actions"><button class="lead-submit" id="leadSubmit" type="submit">Guardar mi contacto y ver resultado →</button><button class="lead-skip" id="leadSkip" type="button">Ver resultado sin dejar datos</button></div>
+              <div class="lead-status" id="leadStatus" role="status" aria-live="polite"></div>
+            </form>
+          </div>
+          <div class="diag-result" id="diagResult"><div class="score-ring" id="scoreRing"><strong id="scoreText">0/10</strong></div><div class="result-copy"><h3 id="resultTitle"></h3><p id="resultBody"></p><div class="result-meta"><span class="result-chip" id="resultInterest" hidden></span><span class="result-chip" id="resultSource"></span></div><div class="result-actions"><a class="button gold" href="/agenda/">Revisar mi situación en una conversación ↗</a><button class="lead-skip" id="restartDiag" type="button">Repetir diagnóstico</button></div></div></div></div></div></div></section>'''
+          text = text[:match.start()] + new_result + text[match.end():]
+
+          # 5) Replace diagnostic JS with lead-aware flow and FormSubmit delivery.
+          js_pattern = re.compile(r"const questions=\[\.\.\.document\.querySelectorAll\('\.question'\)\].*?renderQuestion\(\);", re.S)
+          js_match = js_pattern.search(text)
+          if not js_match:
+              raise RuntimeError('Could not locate diagnostic JS block')
+
+          new_js = r'''const questions=[...document.querySelectorAll('.question')],prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),bar=document.getElementById('diagBar'),count=document.getElementById('diagCount'),form=document.getElementById('diagForm'),leadStep=document.getElementById('leadStep'),leadForm=document.getElementById('leadForm'),leadSubmit=document.getElementById('leadSubmit'),leadSkip=document.getElementById('leadSkip'),leadStatus=document.getElementById('leadStatus'),result=document.getElementById('diagResult'),restartDiag=document.getElementById('restartDiag');let current=0,lastScore=0,lastTitle='',lastBody='';
+function setDiagStage(stage){document.querySelectorAll('[data-diag-step]').forEach(el=>el.classList.toggle('active',el.dataset.diagStep===stage))}
+function renderQuestion(){questions.forEach((q,i)=>q.classList.toggle('active',i===current));prevBtn.style.visibility=current===0?'hidden':'visible';nextBtn.textContent=current===questions.length-1?'Terminar diagnóstico':'Siguiente';bar.style.width=((current+1)/questions.length*100)+'%';count.textContent=`Pregunta ${current+1} de ${questions.length}`;setDiagStage('questions')}
+function selected(i){return form.querySelector(`input[name="q${i}"]:checked`)}
+function computeResult(){let score=questions.reduce((sum,_,i)=>sum+Number(selected(i)?.value||0),0);score=Math.round(score*10)/10;let title,body;if(score<4){title='Hay bases importantes por construir.';body='Tu resultado sugiere que varios componentes de protección, liquidez y planificación todavía podrían organizarse. Comenzar por prioridades claras puede darte mayor tranquilidad y capacidad de avanzar.'}else if(score<7.5){title='Vas avanzando, pero hay piezas por conectar.';body='Ya cuentas con algunos hábitos y decisiones positivas. El siguiente paso es convertirlos en una estrategia integrada y revisar las brechas que podrían afectar tus objetivos.'}else{title='Tienes una base sólida.';body='Tu organización financiera muestra buenos fundamentos. Aun así, una estrategia debe revisarse periódicamente para adaptarse a cambios de ingresos, familia, objetivos y mercado.'}lastScore=score;lastTitle=title;lastBody=body;return{score,title,body}}
+function showLeadStep(){const {score}=computeResult();form.style.display='none';result.classList.remove('active');leadStep.classList.add('active');document.getElementById('leadScore').textContent=score+'/10';bar.style.width='100%';count.textContent='Diagnóstico completado';setDiagStage('contact');document.getElementById('leadName')?.focus({preventScroll:true})}
+function sourceData(){const p=new URLSearchParams(location.search);return{utm_source:p.get('utm_source')||'',utm_medium:p.get('utm_medium')||'',utm_campaign:p.get('utm_campaign')||'',utm_content:p.get('utm_content')||'',utm_term:p.get('utm_term')||'',referrer:document.referrer||'',pagina:location.href}}
+function answerSummary(){return questions.map((_,i)=>{const input=selected(i);const label=input?.closest('label')?.textContent?.trim()||'';return `P${i+1}: ${label}`}).join(' | ')}
+function showResult(saved=false){leadStep.classList.remove('active');form.style.display='none';result.classList.add('active');document.getElementById('scoreText').textContent=lastScore+'/10';document.getElementById('scoreRing').style.setProperty('--score',(lastScore*10)+'%');document.getElementById('resultTitle').textContent=lastTitle;document.getElementById('resultBody').textContent=lastBody;const interest=document.getElementById('leadInterest')?.value||'';const chip=document.getElementById('resultInterest');if(interest){chip.textContent=interest;chip.hidden=false}else{chip.hidden=true}document.getElementById('resultSource').textContent=saved?'Contacto guardado ✓':'Resultado orientativo';count.textContent='Resultado';setDiagStage('result')}
+nextBtn.addEventListener('click',()=>{if(!selected(current)){alert('Selecciona una respuesta para continuar.');return}if(current<questions.length-1){current++;renderQuestion();return}showLeadStep()});
+prevBtn.addEventListener('click',()=>{if(current>0){current--;renderQuestion()}});
+leadSkip.addEventListener('click',()=>showResult(false));
+leadForm.addEventListener('submit',async e=>{e.preventDefault();if(!leadForm.reportValidity())return;leadSubmit.disabled=true;leadSubmit.textContent='Guardando…';leadStatus.className='lead-status';leadStatus.textContent='';const fd=new FormData(leadForm);const src=sourceData();fd.append('Puntaje_diagnostico',lastScore+'/10');fd.append('Clasificacion',lastTitle);fd.append('Respuestas_diagnostico',answerSummary());fd.append('UTM_source',src.utm_source);fd.append('UTM_medium',src.utm_medium);fd.append('UTM_campaign',src.utm_campaign);fd.append('UTM_content',src.utm_content);fd.append('UTM_term',src.utm_term);fd.append('Referrer',src.referrer);fd.append('Pagina_origen',src.pagina);fd.append('_subject',`[LEAD FCE] ${fd.get('Nombre')} · ${fd.get('Interes_principal')} · ${lastScore}/10`);fd.append('_template','table');fd.append('_captcha','false');try{const response=await fetch('https://formsubmit.co/ajax/finanzasconesco@gmail.com',{method:'POST',headers:{'Accept':'application/json'},body:fd});if(!response.ok)throw new Error('submit failed');leadStatus.className='lead-status ok';leadStatus.textContent='Contacto guardado. Mostrando tu resultado…';setTimeout(()=>showResult(true),450)}catch(err){console.error(err);leadStatus.className='lead-status error';leadStatus.textContent='No pude guardar el contacto en este momento. Puedes ver el resultado y agendar directamente.';leadSubmit.disabled=false;leadSubmit.textContent='Intentar de nuevo';setTimeout(()=>showResult(false),1200)}});
+restartDiag.addEventListener('click',()=>{form.reset();leadForm.reset();current=0;lastScore=0;leadStatus.textContent='';result.classList.remove('active');leadStep.classList.remove('active');form.style.display='block';renderQuestion();document.getElementById('diagnostico')?.scrollIntoView({behavior:'smooth',block:'start'})});
+renderQuestion();'''
+          text = text[:js_match.start()] + new_js + text[js_match.end():]
+
+          # Final integrity checks.
+          required = ['leadForm','formsubmit.co/ajax/finanzasconesco@gmail.com','UTM_source','/privacidad/','Contacto opcional']
+          for needle in required:
+              if needle not in text:
+                  raise RuntimeError(f'Missing expected lead-capture element: {needle}')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "Turn diagnostic into lead capture funnel"
+          git push
